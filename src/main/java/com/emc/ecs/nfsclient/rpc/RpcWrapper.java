@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.TreeSet;
 
+import com.emc.ecs.nfsclient.network.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -207,6 +208,20 @@ public class RpcWrapper<S extends NfsRequestBase, T extends NfsResponseBase> {
         response.unmarshalling(callRpc(ipAddress, xdr, request.isUsePrivilegedPort()));
     }
 
+    public void callRpcNakedAsync(S request, T response, String ipAddress, Callback<T> callback) throws RpcException {
+        Xdr xdr = new Xdr(_maximumRequestSize);
+        request.marshalling(xdr);
+
+        callRpcAsync(ipAddress, xdr, request.isUsePrivilegedPort(), new Callback<Xdr>() {
+            @Override
+            public void invoke(Xdr xdr) throws RpcException {
+                response.unmarshalling(xdr);
+                callback.invoke(response);
+            }
+        });
+//        response.unmarshalling(callRpc(ipAddress, xdr, request.isUsePrivilegedPort()));
+    }
+
     /**
      * Basic RPC call functionality only.
      * 
@@ -226,6 +241,10 @@ public class RpcWrapper<S extends NfsRequestBase, T extends NfsResponseBase> {
      */
     public Xdr callRpc(String serverIP, Xdr xdrRequest, boolean usePrivilegedPort) throws RpcException {
         return NetMgr.getInstance().sendAndWait(serverIP, _port, usePrivilegedPort, xdrRequest, _rpcTimeout);
+    }
+
+    public void callRpcAsync(String serverIP, Xdr xdrRequest, boolean usePrivilegedPort, Callback<Xdr> callback) throws RpcException {
+        NetMgr.getInstance().sendAsync(serverIP, _port, usePrivilegedPort, xdrRequest, callback);
     }
 
     /**

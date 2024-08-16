@@ -19,42 +19,10 @@ import com.emc.ecs.nfsclient.mount.MountRequest;
 import com.emc.ecs.nfsclient.mount.MountResponse;
 import com.emc.ecs.nfsclient.mount.MountStatus;
 import com.emc.ecs.nfsclient.mount.UnmountRequest;
+import com.emc.ecs.nfsclient.network.CallMetric;
+import com.emc.ecs.nfsclient.network.Callback;
 import com.emc.ecs.nfsclient.network.NetMgr;
-import com.emc.ecs.nfsclient.nfs.Nfs;
-import com.emc.ecs.nfsclient.nfs.NfsCreateMode;
-import com.emc.ecs.nfsclient.nfs.NfsCreateRequest;
-import com.emc.ecs.nfsclient.nfs.NfsDirectoryEntry;
-import com.emc.ecs.nfsclient.nfs.NfsDirectoryPlusEntry;
-import com.emc.ecs.nfsclient.nfs.NfsStatus;
-import com.emc.ecs.nfsclient.nfs.NfsException;
-import com.emc.ecs.nfsclient.nfs.NfsAccessRequest;
-import com.emc.ecs.nfsclient.nfs.NfsCommitRequest;
-import com.emc.ecs.nfsclient.nfs.NfsResponseBase;
-import com.emc.ecs.nfsclient.nfs.NfsResponseHandler;
-import com.emc.ecs.nfsclient.nfs.NfsRmdirRequest;
-import com.emc.ecs.nfsclient.nfs.NfsSetAttrRequest;
-import com.emc.ecs.nfsclient.nfs.NfsLinkRequest;
-import com.emc.ecs.nfsclient.nfs.NfsLookupRequest;
-import com.emc.ecs.nfsclient.nfs.NfsMkdirRequest;
-import com.emc.ecs.nfsclient.nfs.NfsMknodRequest;
-import com.emc.ecs.nfsclient.nfs.NfsPathconfRequest;
-import com.emc.ecs.nfsclient.nfs.NfsReadRequest;
-import com.emc.ecs.nfsclient.nfs.NfsReaddirRequest;
-import com.emc.ecs.nfsclient.nfs.NfsReaddirplusRequest;
-import com.emc.ecs.nfsclient.nfs.NfsReadlinkRequest;
-import com.emc.ecs.nfsclient.nfs.NfsRemoveRequest;
-import com.emc.ecs.nfsclient.nfs.NfsRenameRequest;
-import com.emc.ecs.nfsclient.nfs.NfsRequestBase;
-import com.emc.ecs.nfsclient.nfs.NfsFsInfo;
-import com.emc.ecs.nfsclient.nfs.NfsFsInfoRequest;
-import com.emc.ecs.nfsclient.nfs.NfsFsStat;
-import com.emc.ecs.nfsclient.nfs.NfsFsStatRequest;
-import com.emc.ecs.nfsclient.nfs.NfsGetAttrRequest;
-import com.emc.ecs.nfsclient.nfs.NfsSetAttributes;
-import com.emc.ecs.nfsclient.nfs.NfsSymlinkRequest;
-import com.emc.ecs.nfsclient.nfs.NfsTime;
-import com.emc.ecs.nfsclient.nfs.NfsType;
-import com.emc.ecs.nfsclient.nfs.NfsWriteRequest;
+import com.emc.ecs.nfsclient.nfs.*;
 import com.emc.ecs.nfsclient.nfs.io.Nfs3File;
 import com.emc.ecs.nfsclient.portmap.Portmapper;
 import com.emc.ecs.nfsclient.rpc.Credential;
@@ -88,6 +56,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * @author seibed
  */
 public class Nfs3 implements Nfs<Nfs3File> {
+
+
+    private final CallMetric metric = new CallMetric();
 
     /**
      * The usual logger.
@@ -324,14 +295,14 @@ public class Nfs3 implements Nfs<Nfs3File> {
 
         MountResponse response = null;
         MountRequest request = new MountRequest(VERSION, _exportedPath, _credential);
-        boolean usePrivilegedPort = false;
+        boolean usePrivilegedPort = true;
         for (int i = 0; i < MOUNT_MAX_RETRIES; ++i) {
             try {
                 Xdr mountXdr = new Xdr(MOUNT_MAX_REQUEST_SIZE);
                 request.marshalling(mountXdr);
                 response = new MountResponse(VERSION);
                 if (usePrivilegedPort) {
-                    LOG.debug("Mounting with privileged port - attempt with unprivileged failed with an authentication error.");
+                    System.out.println("Mounting with privileged port - attempt with unprivileged failed with an authentication error.");
                 }
                 response.unmarshalling(NetMgr.getInstance().sendAndWait(_server, portOfMountService, usePrivilegedPort, mountXdr, MOUNT_RPC_TIMEOUT));
                 int status = response.getMountStatus();
@@ -1141,6 +1112,22 @@ public class Nfs3 implements Nfs<Nfs3File> {
         return response;
     }
 
+    public void getReaddirplusAsync(NfsReaddirplusRequest request, Callback<NfsReaddirplusResponse> callback) throws IOException {
+        Nfs3ReaddirplusResponse response = new Nfs3ReaddirplusResponse();
+        _rpcWrapper.callRpcNakedAsync(request, response, _rpcWrapper.chooseIP(request.getIpKey()), new Callback<NfsResponseBase>() {
+
+            private final long startTimeNanos = System.nanoTime();
+
+            @Override
+            public void invoke(NfsResponseBase nfsResponseBase) throws RpcException {
+                metric.add(System.nanoTime() - startTimeNanos);
+
+                Nfs3ReaddirplusResponse resp = (Nfs3ReaddirplusResponse) nfsResponseBase;
+                callback.invoke(resp);
+            }
+        });
+    }
+
     /* (non-Javadoc)
      * @see com.emc.ecs.nfsclient.nfs.Nfs#wrapped_getReaddirplus(com.emc.ecs.nfsclient.nfs.NfsReaddirplusRequest)
      */
@@ -1429,6 +1416,10 @@ public class Nfs3 implements Nfs<Nfs3File> {
 
       };
       _rpcWrapper.callRpcWrapped(request, responseHandler, _server);
+  }
+
+  public long metrics() {
+      return metric.getAndReset();
   }
 
 }

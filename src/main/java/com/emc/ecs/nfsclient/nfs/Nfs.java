@@ -14,6 +14,7 @@
  */
 package com.emc.ecs.nfsclient.nfs;
 
+import com.emc.ecs.nfsclient.network.Callback;
 import com.emc.ecs.nfsclient.nfs.io.NfsFile;
 import com.emc.ecs.nfsclient.rpc.Credential;
 import com.emc.ecs.nfsclient.rpc.Xdr;
@@ -1389,6 +1390,8 @@ public interface Nfs<F extends NfsFile<?, ?>> {
      * @throws IOException
      */
     NfsReaddirplusResponse getReaddirplus(NfsReaddirplusRequest request) throws IOException;
+
+    void getReaddirplusAsync(NfsReaddirplusRequest request, Callback<NfsReaddirplusResponse> callback) throws IOException;
 
     /**
      * Implementation of the NFS RPC call, wrapped to include repeated attempts,

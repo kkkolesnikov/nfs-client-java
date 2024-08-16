@@ -145,7 +145,7 @@ public class Connection {
     public Connection(String remoteHost, int port, boolean usePrivilegedPort) {
         _remoteHost = remoteHost;
         _port = port;
-        _usePrivilegedPort = usePrivilegedPort;
+        _usePrivilegedPort = true;
         _clientBootstrap = new ClientBootstrap(NetMgr.getInstance().getFactory());
         // Configure the client.
         _clientBootstrap.setOption(REMOTE_ADDRESS_OPTION, new InetSocketAddress(_remoteHost, _port));
@@ -284,6 +284,86 @@ public class Connection {
         return response;
     }
 
+    public void sendAsync(Xdr xdrRequest, Callback<Xdr> callback) throws RpcException {
+        // no lock is required here.
+        // The status may be changed after the checking,
+        // or there exists a small window that the status is not consistent to
+        // the actual tcp connection state.
+        // Both above cases will not cause any issues.
+        if (_state.equals(State.CONNECTED) == false) {
+            _channelFuture.awaitUninterruptibly();
+            if (_channelFuture.isSuccess() == false) {
+
+                String msg = String.format("waiting for connection to be established, but failed %s",
+                        getRemoteAddress());
+                LOG.error(msg);
+
+                // return RpcException, the exact reason should already be
+                // logged in IOHandler::exceptionCaught()
+                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
+            }
+        }
+
+        // check whether the internal queue of netty has enough spaces to hold
+        // the request
+        // False means that the too many pending requests are in the queue or
+        // the connection is closed.
+        if (_channel.isWritable() == false) {
+            String msg;
+            if (_channel.isConnected()) {
+                msg = String.format("too many pending requests for the connection: %s", getRemoteAddress());
+            } else {
+                msg = String.format("the connection is broken: %s", getRemoteAddress());
+            }
+
+            // too many pending request are in the queue, return error
+            throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
+        }
+
+        // put the request into a map for timeout management
+        ChannelFuture timeoutFuture = Channels.future(_channel);
+        Integer xid = Integer.valueOf(xdrRequest.getXid());
+        _futureMap.put(xid, timeoutFuture);
+
+
+        timeoutFuture.addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+//                System.out.println(String.format("call listener ..%s", channelFuture));
+                if (channelFuture.isSuccess()) {
+                    Xdr response = _responseMap.remove(xid);
+                    callback.invoke(response);
+                }
+                _futureMap.remove(xid);
+
+            }
+        });
+
+
+        // put the request into the queue of the netty, netty will send data
+        // asynchronously
+        RecordMarkingUtil.putRecordMarkingAndSend(_channel, xdrRequest);
+
+        // remove the response from timeout maps
+//        Xdr response = _responseMap.remove(xid);
+//        _futureMap.remove(xid);
+//
+//        if (timeoutFuture.isSuccess() == false) {
+//
+//            LOG.warn("cause:", timeoutFuture.getCause());
+//
+//            if (timeoutFuture.isDone()) {
+//                String msg = String.format("tcp IO error on the connection: %s", getRemoteAddress());
+//                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
+//            } else {
+//                String msg = String.format("rpc request timeout on the connection: %s", getRemoteAddress());
+//                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
+//            }
+//        }
+//
+//        return response;
+    }
+
     /**
      * If there is no current connection, start a new tcp connection asynchronously.
      * 
@@ -364,8 +444,9 @@ public class Connection {
      */
     protected void notifySender(Integer xid, Xdr response) {
         ChannelFuture future = _futureMap.get(xid);
+        _responseMap.put(xid, response);
+
         if (future != null) {
-            _responseMap.put(xid, response);
             future.setSuccess();
         }
     }
