@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Each Connection instance manages a tcp connection. The class is used to send
@@ -83,20 +84,16 @@ public class Connection {
      */
     private Channel _channel;
 
+    private AtomicBoolean isConnected = new AtomicBoolean(false);
+
     /**
      * Netty helper instance.
      */
     ChannelFuture _channelFuture = Channels.future(null, true);
 
-    /**
-     * The remote server address, in any form.
-     */
-    private final String _remoteHost;
+    private final ConnectionPool parent;
 
-    /**
-     * The remote server port being used.
-     */
-    private final int _port;
+    private final int id;
 
     /**
      * <ul><li>
@@ -129,7 +126,7 @@ public class Connection {
     /**
      * The current state.
      */
-    private State _state = State.DISCONNECTED;
+    volatile private State _state = State.DISCONNECTED;
 
     /**
      * @param remoteHost A unique name for the host to which the connection is being made.
@@ -142,13 +139,13 @@ public class Connection {
      *            communication.</li>
      *            </ul>
      */
-    public Connection(String remoteHost, int port, boolean usePrivilegedPort) {
-        _remoteHost = remoteHost;
-        _port = port;
-        _usePrivilegedPort = true;
+    public Connection(ConnectionPool parent, int id, String remoteHost, int port, boolean usePrivilegedPort) {
+        this.parent = parent;
+        this.id = id;
+        _usePrivilegedPort = usePrivilegedPort;
         _clientBootstrap = new ClientBootstrap(NetMgr.getInstance().getFactory());
         // Configure the client.
-        _clientBootstrap.setOption(REMOTE_ADDRESS_OPTION, new InetSocketAddress(_remoteHost, _port));
+        _clientBootstrap.setOption(REMOTE_ADDRESS_OPTION, new InetSocketAddress(remoteHost, port));
         _clientBootstrap.setOption("connectTimeoutMillis", CONNECT_TIMEOUT);  // set
                                                                               // connection
                                                                               // timeout
@@ -186,6 +183,10 @@ public class Connection {
         return (InetSocketAddress) _clientBootstrap.getOption(REMOTE_ADDRESS_OPTION);
     }
 
+    int getId() {
+        return id;
+    }
+
     /**
      * Convenience getter method.
      * 
@@ -218,30 +219,16 @@ public class Connection {
      * @throws RpcException
      */
     public Xdr sendAndWait(int timeout, Xdr xdrRequest) throws RpcException {
-        // no lock is required here.
-        // The status may be changed after the checking,
-        // or there exists a small window that the status is not consistent to
-        // the actual tcp connection state.
-        // Both above cases will not cause any issues.
-        if (_state.equals(State.CONNECTED) == false) {
-            _channelFuture.awaitUninterruptibly();
-            if (_channelFuture.isSuccess() == false) {
 
-                String msg = String.format("waiting for connection to be established, but failed %s",
-                        getRemoteAddress());
-                LOG.error(msg);
-
-                // return RpcException, the exact reason should already be
-                // logged in IOHandler::exceptionCaught()
-                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
-            }
+        if (!isConnected()) {
+            throw new RuntimeException("Attempt to send RPC request over closed connection");
         }
 
         // check whether the internal queue of netty has enough spaces to hold
         // the request
         // False means that the too many pending requests are in the queue or
         // the connection is closed.
-        if (_channel.isWritable() == false) {
+        if (!_channel.isWritable()) {
             String msg;
             if (_channel.isConnected()) {
                 msg = String.format("too many pending requests for the connection: %s", getRemoteAddress());
@@ -255,7 +242,7 @@ public class Connection {
 
         // put the request into a map for timeout management
         ChannelFuture timeoutFuture = Channels.future(_channel);
-        Integer xid = Integer.valueOf(xdrRequest.getXid());
+        Integer xid = xdrRequest.getXid();
         _futureMap.put(xid, timeoutFuture);
 
         // put the request into the queue of the netty, netty will send data
@@ -268,8 +255,7 @@ public class Connection {
         Xdr response = _responseMap.remove(xid);
         _futureMap.remove(xid);
 
-        if (timeoutFuture.isSuccess() == false) {
-
+        if (!timeoutFuture.isSuccess()) {
             LOG.warn("cause:", timeoutFuture.getCause());
 
             if (timeoutFuture.isDone()) {
@@ -285,30 +271,15 @@ public class Connection {
     }
 
     public void sendAsync(Xdr xdrRequest, Callback<Xdr> callback) throws RpcException {
-        // no lock is required here.
-        // The status may be changed after the checking,
-        // or there exists a small window that the status is not consistent to
-        // the actual tcp connection state.
-        // Both above cases will not cause any issues.
-        if (_state.equals(State.CONNECTED) == false) {
-            _channelFuture.awaitUninterruptibly();
-            if (_channelFuture.isSuccess() == false) {
-
-                String msg = String.format("waiting for connection to be established, but failed %s",
-                        getRemoteAddress());
-                LOG.error(msg);
-
-                // return RpcException, the exact reason should already be
-                // logged in IOHandler::exceptionCaught()
-                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
-            }
+        if (!isConnected()) {
+            throw new RuntimeException("Attempt to send RPC request over closed connection");
         }
 
         // check whether the internal queue of netty has enough spaces to hold
         // the request
         // False means that the too many pending requests are in the queue or
         // the connection is closed.
-        if (_channel.isWritable() == false) {
+        if (!_channel.isWritable()) {
             String msg;
             if (_channel.isConnected()) {
                 msg = String.format("too many pending requests for the connection: %s", getRemoteAddress());
@@ -322,14 +293,13 @@ public class Connection {
 
         // put the request into a map for timeout management
         ChannelFuture timeoutFuture = Channels.future(_channel);
-        Integer xid = Integer.valueOf(xdrRequest.getXid());
+        Integer xid = xdrRequest.getXid();
         _futureMap.put(xid, timeoutFuture);
 
 
         timeoutFuture.addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture channelFuture) throws Exception {
-//                System.out.println(String.format("call listener ..%s", channelFuture));
                 if (channelFuture.isSuccess()) {
                     Xdr response = _responseMap.remove(xid);
                     callback.invoke(response);
@@ -343,25 +313,10 @@ public class Connection {
         // put the request into the queue of the netty, netty will send data
         // asynchronously
         RecordMarkingUtil.putRecordMarkingAndSend(_channel, xdrRequest);
+    }
 
-        // remove the response from timeout maps
-//        Xdr response = _responseMap.remove(xid);
-//        _futureMap.remove(xid);
-//
-//        if (timeoutFuture.isSuccess() == false) {
-//
-//            LOG.warn("cause:", timeoutFuture.getCause());
-//
-//            if (timeoutFuture.isDone()) {
-//                String msg = String.format("tcp IO error on the connection: %s", getRemoteAddress());
-//                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
-//            } else {
-//                String msg = String.format("rpc request timeout on the connection: %s", getRemoteAddress());
-//                throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
-//            }
-//        }
-//
-//        return response;
+    private boolean isConnected() {
+        return _state == State.CONNECTED;
     }
 
     /**
@@ -370,7 +325,7 @@ public class Connection {
      * @throws RpcException
      */
     protected void connect() throws RpcException {
-        if (_state.equals(State.CONNECTED)) {
+        if (isConnected()) {
             return;
         }
 
@@ -399,16 +354,27 @@ public class Connection {
              */
             public void operationComplete(ChannelFuture future) {
                 if (_channelFuture.isSuccess()) {
-                    _state = State.CONNECTED;
                     oldChannelFuture.setSuccess();
                 } else {
-                    _state = State.DISCONNECTED;
                     oldChannelFuture.cancel();
                 }
-
             }
         });
 
+        _channelFuture.awaitUninterruptibly();
+
+        if (_channelFuture.isSuccess()) {
+            _state = State.CONNECTED;
+        } else {
+            _state = State.DISCONNECTED;
+            String msg = String.format("waiting for connection to be established, but failed %s",
+                    getRemoteAddress());
+            LOG.error(msg);
+
+            // return RpcException, the exact reason should already be
+            // logged in IOHandler::exceptionCaught()
+            throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
+        }
     }
 
     /**
@@ -425,11 +391,8 @@ public class Connection {
      */
     protected void close() {
         _state = State.DISCONNECTED;
-
+        parent.dropConnection(this);
         shutdown();
-
-        // remove the connection from map
-        NetMgr.getInstance().dropConnection(InetSocketAddress.createUnresolved(_remoteHost, _port));
 
         // notify all the pending requests in the timeout map
         notifyAllPendingSenders("Channel closed, connection closing.");

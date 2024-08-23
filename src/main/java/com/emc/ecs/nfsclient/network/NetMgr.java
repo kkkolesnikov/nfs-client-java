@@ -58,22 +58,22 @@ public class NetMgr {
     /**
      * connection tracking map
      */
-    private ConcurrentHashMap<InetSocketAddress, ConnectionPool> _connectionMap = new ConcurrentHashMap<InetSocketAddress, ConnectionPool>();
+    private final ConcurrentHashMap<InetSocketAddress, ConnectionPool> _connectionMap = new ConcurrentHashMap<>();
 
     /**
      * privileged connection tracking map
      */
-    private ConcurrentHashMap<InetSocketAddress, ConnectionPool> _privilegedConnectionMap = new ConcurrentHashMap<InetSocketAddress, ConnectionPool>();
+    private final ConcurrentHashMap<InetSocketAddress, ConnectionPool> _privilegedConnectionMap = new ConcurrentHashMap<>();
 
     /**
      * Netty helper instance.
      */
-    private ChannelFactory _factory = new NioClientSocketChannelFactory(newThreadPool(), newThreadPool());
+    private final ChannelFactory _factory = new NioClientSocketChannelFactory(newThreadPool(), newThreadPool());
 
     /**
      * @return a thread pool instance using the proper factory to create daemon threads
      */
-    private static final ExecutorService newThreadPool() {
+    private static ExecutorService newThreadPool() {
         return Executors.newCachedThreadPool(getThreadFactory());
     }
 
@@ -119,13 +119,11 @@ public class NetMgr {
     public Xdr sendAndWait(String serverIP, int port, boolean usePrivilegedPort, Xdr xdrRequest, int timeout) throws RpcException {
         ConnectionPool pool = getConnectionPool(serverIP, port, usePrivilegedPort);
         Connection connection = pool.getConnection();
-//        if (connection == null) {	at com.emc.ecs.nfsclient.nfs.nfs3.Nfs3.prepareRootFhAndNfsPort(Nfs3.java:309)
 
-//            connection = new Connection(serverIP, port, usePrivilegedPort);
-//            connectionMap.put(key, connection);
-//            connection.connect();
-//        }
+        return connection.sendAndWait(timeout, xdrRequest);
+    }
 
+    public Xdr sendAndWait(Connection connection, Xdr xdrRequest, int timeout) throws RpcException {
         return connection.sendAndWait(timeout, xdrRequest);
     }
 
@@ -141,14 +139,8 @@ public class NetMgr {
 
         Map<InetSocketAddress, ConnectionPool> connectionMap = usePrivilegedPort ? _privilegedConnectionMap : _connectionMap;
 
-        ConnectionPool pool = connectionMap.computeIfAbsent(key, (InetSocketAddress addr) -> {
-            try {
-                return new ConnectionPool(serverIP, port, usePrivilegedPort, _channelsPerSocket);
-            } catch (RpcException e) {
-                throw new RuntimeException(e);
-            }
-        });
-        return pool;
+        return connectionMap.computeIfAbsent(key,
+                (InetSocketAddress addr) -> new ConnectionPool(serverIP, port, usePrivilegedPort, _channelsPerSocket));
     }
 
     /**

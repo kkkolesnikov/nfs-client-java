@@ -223,7 +223,7 @@ public class Nfs3 implements Nfs<Nfs3File> {
         if (credential != null) {
             _credential = credential;
         }
-        _rpcWrapper = new RpcWrapper<NfsRequestBase, NfsResponseBase>(_server, _port, _retryWait, _maximumRetries, MAXIMUM_NFS_REQUEST_SIZE, NFS_TIMEOUT);
+        _rpcWrapper = new RpcWrapper<>(_server, _port, _retryWait, _maximumRetries, MAXIMUM_NFS_REQUEST_SIZE, NFS_TIMEOUT);
 
         if (rootFileHandle == null) {
             prepareRootFhAndNfsPort();
@@ -289,13 +289,15 @@ public class Nfs3 implements Nfs<Nfs3File> {
      * @return the root handle
      * @throws IOException
      */
+
+    //FixMe: weird logic here
     byte[] lookupRootHandle()
             throws IOException {
         int portOfMountService = Portmapper.queryPortFromPortMap(MOUNTPROG, VERSION, _server);
 
         MountResponse response = null;
         MountRequest request = new MountRequest(VERSION, _exportedPath, _credential);
-        boolean usePrivilegedPort = true;
+        boolean usePrivilegedPort = false;
         for (int i = 0; i < MOUNT_MAX_RETRIES; ++i) {
             try {
                 Xdr mountXdr = new Xdr(MOUNT_MAX_REQUEST_SIZE);
