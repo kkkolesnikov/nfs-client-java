@@ -14,10 +14,13 @@
  */
 package com.emc.ecs.nfsclient.network;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.handler.codec.frame.FrameDecoder;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.ReplayingDecoder;
+
+import java.util.List;
 
 /**
  * To receive the entire response. We do not actually decode the rpc packet here.
@@ -25,7 +28,7 @@ import org.jboss.netty.handler.codec.frame.FrameDecoder;
  * 
  * @author seibed
  */
-public class RPCRecordDecoder extends FrameDecoder {
+public class RPCRecordDecoder extends ByteToMessageDecoder {
 
     /**
      * Holds the calculated record length for each channel until the Channel is ready for buffering.
@@ -33,45 +36,40 @@ public class RPCRecordDecoder extends FrameDecoder {
      */
     private int _recordLength = 0;
 
-    /* (non-Javadoc)
-     * @see org.jboss.netty.handler.codec.frame.FrameDecoder#decode(org.jboss.netty.channel.ChannelHandlerContext, org.jboss.netty.channel.Channel, org.jboss.netty.buffer.ChannelBuffer)
-     */
-    protected Object decode(ChannelHandlerContext channelHandlerContext, Channel channel, ChannelBuffer channelBuffer) throws Exception {
-        // Wait until the length prefix is available.
-        if (channelBuffer.readableBytes() < 4) {
-            // If null is returned, it means there is not enough data yet.
-            // FrameDecoder will call again when there is a sufficient amount of data available.
-            return null;
+    public RPCRecordDecoder() {}
+
+    @Override
+    protected void decode(ChannelHandlerContext channelHandlerContext, ByteBuf byteBuf, List<Object> list) throws Exception {
+//        // Wait until the length prefix is available.
+        if (byteBuf.readableBytes() < 4) {
+            return;
         }
 
-        //marking the current reading position
-        channelBuffer.markReaderIndex();
+        byteBuf.markReaderIndex(); //.markReaderIndex();
 
-        //get the fragment size and wait until the entire fragment is available.
-        long fragSize = channelBuffer.readUnsignedInt();
+        long fragSize = byteBuf.readUnsignedInt();
         boolean lastFragment = RecordMarkingUtil.isLastFragment(fragSize);
         fragSize = RecordMarkingUtil.maskFragmentSize(fragSize);
-        if (channelBuffer.readableBytes() < fragSize) {
-            channelBuffer.resetReaderIndex();
-            return null;
+        if (byteBuf.readableBytes() < fragSize) {
+            byteBuf.resetReaderIndex();
+            return;
         }
 
-        //seek to the beginning of the next fragment
-        channelBuffer.skipBytes((int) fragSize);
-
+        byteBuf.skipBytes((int) fragSize);
+//
         _recordLength += 4 + (int) fragSize;
-
-        //check the last fragment
+//
+//        //check the last fragment
         if (!lastFragment) {
             //not the last fragment, the data is put in an internally maintained cumulative buffer
-            return null;
+             return;
         }
-
-        byte[] rpcResponse = new byte[_recordLength];
-        channelBuffer.readerIndex(channelBuffer.readerIndex() - _recordLength);
-        channelBuffer.readBytes(rpcResponse, 0, _recordLength);
-
+//
+        ByteBuf rpcResponse = Unpooled.buffer(_recordLength, _recordLength);
+        byteBuf.readerIndex(byteBuf.readerIndex() - _recordLength);
+        byteBuf.readBytes(rpcResponse, 0, _recordLength);
+//
         _recordLength = 0;
-        return rpcResponse;
+        list.add(rpcResponse);
     }
 }

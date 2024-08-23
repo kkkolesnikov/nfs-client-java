@@ -65,7 +65,7 @@ repositories {
 }
 
 dependencies {
-    implementation "io.netty:netty:3.10.6.Final"
+    implementation "io.netty:netty-all:4.1.112.Final"
     implementation "org.apache.commons:commons-lang3:3.12.0"
     implementation "org.slf4j:slf4j-api:1.7.36"
 

@@ -25,7 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.emc.ecs.nfsclient.nfs.NfsStatus;
-import com.emc.ecs.nfsclient.network.NetMgr;
+import com.emc.ecs.nfsclient.network.NetworkManager;
 import com.emc.ecs.nfsclient.nfs.NfsException;
 import com.emc.ecs.nfsclient.nfs.NfsRequestBase;
 import com.emc.ecs.nfsclient.nfs.NfsResponseBase;
@@ -240,11 +240,11 @@ public class RpcWrapper<S extends NfsRequestBase, T extends NfsResponseBase> {
      * @throws RpcException
      */
     public Xdr callRpc(String serverIP, Xdr xdrRequest, boolean usePrivilegedPort) throws RpcException {
-        return NetMgr.getInstance().sendAndWait(serverIP, _port, usePrivilegedPort, xdrRequest, _rpcTimeout);
+        return NetworkManager.getInstance().sendAndWait(serverIP, _port, usePrivilegedPort, xdrRequest, _rpcTimeout);
     }
 
     public void callRpcAsync(String serverIP, Xdr xdrRequest, boolean usePrivilegedPort, Callback<Xdr> callback) throws RpcException {
-        NetMgr.getInstance().sendAsync(serverIP, _port, usePrivilegedPort, xdrRequest, callback);
+        NetworkManager.getInstance().sendAsync(serverIP, _port, usePrivilegedPort, xdrRequest, callback);
     }
 
     /**

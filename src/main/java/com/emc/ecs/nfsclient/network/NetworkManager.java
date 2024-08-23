@@ -17,41 +17,38 @@ package com.emc.ecs.nfsclient.network;
 import com.emc.ecs.nfsclient.rpc.RpcException;
 import com.emc.ecs.nfsclient.rpc.Xdr;
 
-import org.jboss.netty.channel.ChannelFactory;
-import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
 
 import java.net.InetSocketAddress;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.*;
 
 /**
  * Singleton class to manage all Connection instances
  * 
  * @author seibed
  */
-public class NetMgr {
+public class NetworkManager {
 
     private int _channelsPerSocket;
 
     /**
      * The single instance.
      */
-    private static final NetMgr _instance = new NetMgr();
+    private static final NetworkManager _instance = new NetworkManager();
 
     /**
      * @return The instance.
      */
-    public static NetMgr getInstance() {
+    public static NetworkManager getInstance() {
         return _instance;
     }
 
     /**
      * Construct the private instance.
      */
-    private NetMgr() {
+    private NetworkManager() {
         super();
     }
 
@@ -68,7 +65,14 @@ public class NetMgr {
     /**
      * Netty helper instance.
      */
-    private final ChannelFactory _factory = new NioClientSocketChannelFactory(newThreadPool(), newThreadPool());
+//    private final ChannelFactory _factory = new NioClientSocketChannelFactory(newThreadPool(), newThreadPool());
+
+    private final EventLoopGroup eventLoopGroup = new NioEventLoopGroup(Runtime.getRuntime().availableProcessors()*2, getThreadFactory());
+
+    public EventLoopGroup getEventLoopGroup() {
+        return eventLoopGroup;
+    }
+
 
     /**
      * @return a thread pool instance using the proper factory to create daemon threads
@@ -166,7 +170,11 @@ public class NetMgr {
             connection.shutdown();
         }
 
-        _factory.releaseExternalResources();
+        try {
+            eventLoopGroup.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            //
+        }
     }
 
     /**
@@ -174,9 +182,9 @@ public class NetMgr {
      * 
      * @return The factory.
      */
-    public ChannelFactory getFactory() {
-        return _factory;
-    }
+//    public ChannelFactory getFactory() {
+//        return _factory;
+//    }
 
     public void setChannelsPerSocket(int channelsPerSocket) {
         this._channelsPerSocket = channelsPerSocket;

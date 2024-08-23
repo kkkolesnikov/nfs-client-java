@@ -16,10 +16,10 @@ package com.emc.ecs.nfsclient.network;
 
 import com.emc.ecs.nfsclient.rpc.Xdr;
 
+import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import org.apache.commons.lang3.NotImplementedException;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,7 +97,7 @@ public class RecordMarkingUtil {
                             String.format("too big single byte buffer %d", buffer.remaining()));
                 } else {
 
-                    sendBuffers(channel, bytesToWrite, outBuffers, isLast);
+                    writeBuffers(channel, bytesToWrite, outBuffers, isLast);
 
                     bytesToWrite = 0;
                     outBuffers.clear();
@@ -112,8 +112,10 @@ public class RecordMarkingUtil {
 
         // send out remaining buffers
         if (!outBuffers.isEmpty()) {
-            sendBuffers(channel, bytesToWrite, outBuffers, true);
+            writeBuffers(channel, bytesToWrite, outBuffers, true);
         }
+
+        channel.flush();
     }
 
     /**
@@ -159,7 +161,7 @@ public class RecordMarkingUtil {
      * @param outBuffers
      * @param isLast
      */
-    private static void sendBuffers(Channel channel, int bytesToWrite, List<ByteBuffer> outBuffers, boolean isLast) {
+    private static ChannelFuture writeBuffers(Channel channel, int bytesToWrite, List<ByteBuffer> outBuffers, boolean isLast) {
         ByteBuffer recSizeBuf = ByteBuffer.allocate(4);
 
         if (isLast) {
@@ -171,8 +173,7 @@ public class RecordMarkingUtil {
         outBuffers.add(0, recSizeBuf);
 
         ByteBuffer[] outArray = outBuffers.toArray(new ByteBuffer[outBuffers.size()]);
-        ChannelBuffer channelBuffer = ChannelBuffers.wrappedBuffer(outArray);
-        channel.write(channelBuffer);
+        return channel.write(Unpooled.wrappedBuffer(outArray));
     }
 
     /**

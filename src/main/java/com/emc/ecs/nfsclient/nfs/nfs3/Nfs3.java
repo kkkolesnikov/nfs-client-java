@@ -21,7 +21,7 @@ import com.emc.ecs.nfsclient.mount.MountStatus;
 import com.emc.ecs.nfsclient.mount.UnmountRequest;
 import com.emc.ecs.nfsclient.network.CallMetric;
 import com.emc.ecs.nfsclient.network.Callback;
-import com.emc.ecs.nfsclient.network.NetMgr;
+import com.emc.ecs.nfsclient.network.NetworkManager;
 import com.emc.ecs.nfsclient.nfs.*;
 import com.emc.ecs.nfsclient.nfs.io.Nfs3File;
 import com.emc.ecs.nfsclient.portmap.Portmapper;
@@ -306,7 +306,7 @@ public class Nfs3 implements Nfs<Nfs3File> {
                 if (usePrivilegedPort) {
                     System.out.println("Mounting with privileged port - attempt with unprivileged failed with an authentication error.");
                 }
-                response.unmarshalling(NetMgr.getInstance().sendAndWait(_server, portOfMountService, usePrivilegedPort, mountXdr, MOUNT_RPC_TIMEOUT));
+                response.unmarshalling(NetworkManager.getInstance().sendAndWait(_server, portOfMountService, usePrivilegedPort, mountXdr, MOUNT_RPC_TIMEOUT));
                 int status = response.getMountStatus();
                 if (status != MountStatus.MNT3_OK.getValue()) {
                     String msg = String.format(
@@ -327,7 +327,7 @@ public class Nfs3 implements Nfs<Nfs3File> {
                 unmountRequest.marshalling(unmountXdr);
                 // RFC defines the response of a unmount request as void
                 // If we mounted with a privileged port, use one to unmount.
-                NetMgr.getInstance().sendAndWait(_server, portOfMountService, usePrivilegedPort, unmountXdr, MOUNT_RPC_TIMEOUT);
+                NetworkManager.getInstance().sendAndWait(_server, portOfMountService, usePrivilegedPort, unmountXdr, MOUNT_RPC_TIMEOUT);
             } catch (RpcException e) {
                 if (i+1 < MOUNT_MAX_RETRIES) {
                     LOG.warn(String.format(
