@@ -17,13 +17,11 @@ public class PooledConnectionLifecycleHandler extends ChannelInboundHandlerAdapt
 
     @Override
     public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Channel unregistered");
         pool.dropConnection(connection);
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        System.out.println("Channel inactive");
         pool.dropConnection(connection);
     }
 
