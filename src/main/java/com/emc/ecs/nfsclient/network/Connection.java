@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -41,11 +42,6 @@ public class Connection {
     private static final Logger LOG = LoggerFactory.getLogger(Connection.class);
 
     /**
-     * The value in milliseconds.
-     */
-    private static final int CONNECT_TIMEOUT = 10000; // 10 seconds
-
-    /**
      * internal sending queue (not tcp sending buffer) the rename/lookup/readdir
      * has size between 256-516bytes, 5M can hold 10000 pending requests for
      * data writing, each request is 512K and maximum 40 pending requests are
@@ -57,25 +53,11 @@ public class Connection {
                                                                 // 1G
 
     /**
-     * Netty helper instance.
-     */
-//    private final ClientBootstrap _clientBootstrap;
-
-    /**
      * Netty channel representing a tcp connection.
      */
     private Channel _channel;
 
-    /**
-     * Netty helper instance.
-     */
-//    ChannelFuture _channelFuture = ChannelPromise.Channels.future(null, true);
-
-    private final ConnectionPool parent;
-
     private final Bootstrap _bootstrap;
-
-    private final InetSocketAddress _remoteAddress;
 
     private final int id;
 
@@ -98,57 +80,10 @@ public class Connection {
      */
     private final ConcurrentHashMap<Integer, Xdr> _responseMap = new ConcurrentHashMap<Integer, Xdr>();
 
-    /**
-     * Simple enums for communicating connection states.
-     * 
-     * @author seibed
-     */
-    public enum State {
-        DISCONNECTED, CONNECTING, CONNECTED;
-    }
-
-    /**
-     * The current state.
-     */
-    volatile private State _state = State.DISCONNECTED;
-
-    /**
-     * @param remoteHost A unique name for the host to which the connection is being made.
-     * @param port The remote host port being used for the connection.
-     * @param usePrivilegedPort
-     *            <ul>
-     *            <li>If <code>true</code>, use a privileged port (below 1024)
-     *            for RPC communication.</li>
-     *            <li>If <code>false</code>, use any non-privileged port for RPC
-     *            communication.</li>
-     *            </ul>
-     */
-    public Connection(ConnectionPool parent, int id, String remoteHost, int port, boolean usePrivilegedPort) {
-        this.parent = parent;
-        this.id = id;
-        _usePrivilegedPort = usePrivilegedPort;
-        _remoteAddress = InetSocketAddress.createUnresolved(remoteHost, port);
-
-        Connection self = this;
-
-        _bootstrap = new Bootstrap()
-                .group(NetMgr.getInstance().getEventLoopGroup())
-                .remoteAddress(remoteHost, port)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT)
-                .option(ChannelOption.TCP_NODELAY, true)
-                .option(ChannelOption.SO_KEEPALIVE, true)
-                .option(ChannelOption.TCP_NODELAY, true)
-                .channel(NioSocketChannel.class)
-                .handler(new ChannelInitializer<NioSocketChannel>() {
-                    @Override
-                    protected void initChannel(NioSocketChannel socketChannel) throws Exception {
-                        socketChannel.pipeline()
-                                .addFirst(
-                                        new RPCRecordDecoder(),
-                                        new ClientIOHandler(self)
-                                        );
-                    }
-                });
+    public Connection(int channelId, Bootstrap bootstrap, boolean usePrivilegedPort) {
+        this._usePrivilegedPort = usePrivilegedPort;
+        this.id = channelId;
+        this._bootstrap = bootstrap;
     }
 
     /**
@@ -156,21 +91,9 @@ public class Connection {
      * 
      * @return The remote server internet address.
      */
-    public InetSocketAddress getRemoteAddress() {
-        return _remoteAddress;
-    }
 
     int getId() {
         return id;
-    }
-
-    /**
-     * Convenience getter method.
-     * 
-     * @return The state.
-     */
-    public State getConnectionState() {
-        return _state;
     }
 
     /**
@@ -208,9 +131,9 @@ public class Connection {
         if (!_channel.isWritable()) {
             String msg;
             if (_channel.isActive()) {
-                msg = String.format("too many pending requests for the connection: %s", getRemoteAddress());
+                msg = String.format("too many pending requests for the connection: %s", _channel.remoteAddress());
             } else {
-                msg = String.format("the connection is broken: %s", getRemoteAddress());
+                msg = String.format("the connection is broken: %s", _channel.remoteAddress());
             }
 
             // too many pending request are in the queue, return error
@@ -219,6 +142,7 @@ public class Connection {
 
         // put the request into a map for timeout management
         ChannelPromise timeoutFuture = _channel.newPromise();
+
         Integer xid = xdrRequest.getXid();
         _futureMap.put(xid, timeoutFuture);
 
@@ -236,10 +160,10 @@ public class Connection {
             LOG.warn("cause:", timeoutFuture.cause());
 
             if (timeoutFuture.isDone()) {
-                String msg = String.format("tcp IO error on the connection: %s", getRemoteAddress());
+                String msg = String.format("tcp IO error on the connection: %s", _channel.remoteAddress());
                 throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
             } else {
-                String msg = String.format("rpc request timeout on the connection: %s", getRemoteAddress());
+                String msg = String.format("rpc request timeout on the connection: %s", _channel.remoteAddress());
                 throw new RpcException(RpcStatus.NETWORK_ERROR, msg);
             }
         }
@@ -259,9 +183,9 @@ public class Connection {
         if (!_channel.isWritable()) {
             String msg;
             if (_channel.isActive()) {
-                msg = String.format("too many pending requests for the connection: %s", getRemoteAddress());
+                msg = String.format("too many pending requests for the connection: %s", _channel.remoteAddress());
             } else {
-                msg = String.format("the connection is broken: %s", getRemoteAddress());
+                msg = String.format("the connection is broken: %s", _channel.remoteAddress());
             }
 
             // too many pending request are in the queue, return error
@@ -293,7 +217,7 @@ public class Connection {
     }
 
     private boolean isConnected() {
-        return _state == State.CONNECTED;
+        return _channel != null && _channel.isActive();
     }
 
     /**
@@ -301,13 +225,16 @@ public class Connection {
      * 
      * @throws RpcException
      */
+
     protected void connect() throws RpcException {
+        //ToDo: privileged ports
         if (isConnected()) {
             return;
         }
 
-        _state = State.CONNECTING;
         ChannelFuture channelFuture = _bootstrap.connect();
+//        new SocketAddress()
+//        _bootstrap.b
 //        final ChannelFuture oldChannelFuture = _channelFuture;
 //
 //        if (LOG.isDebugEnabled()) {
@@ -319,8 +246,7 @@ public class Connection {
 //            _channel = bindToPrivilegedPort();
 //            _channelFuture = _channel.connect(getRemoteAddress());
 //        } else {
-//            _channelFuture = _bootstrap.connect();
-//            _channel = _channelFuture.channel();//.getChannel();
+//            channelFuture = _bootstrap.connect();
 //        }
 
 //        ChannelConfig cfg =  _channel.config();
@@ -349,13 +275,14 @@ public class Connection {
         channelFuture.awaitUninterruptibly();
 
         if (channelFuture.isSuccess()) {
-            _state = State.CONNECTED;
+            System.out.println("Connection done!");
             _channel = channelFuture.channel();
             _channel.config().setWriteBufferHighWaterMark(MAX_SENDING_QUEUE_SIZE);
+            _channel.pipeline().addLast(new ClientIOHandler(this));
         } else {
-            _state = State.DISCONNECTED;
-            String msg = String.format("waiting for connection to be established, but failed %s",
-                    getRemoteAddress());
+            String msg = String.format("waiting for connection to %s be established, but failed %s",
+                    _bootstrap.config().remoteAddress(), channelFuture.cause().getMessage());
+            System.out.println(msg);
             LOG.error(msg);
 
             // return RpcException, the exact reason should already be
@@ -364,26 +291,6 @@ public class Connection {
         }
     }
 
-    /**
-     * This is called when the application is shutdown or the channel is closed.
-     */
-    protected void shutdown() {
-        if (_channel != null) {
-            _channel.close();
-        }
-    }
-
-    /**
-     * This is called when the connection should be closed.
-     */
-    protected void close() {
-        _state = State.DISCONNECTED;
-        parent.dropConnection(this);
-        shutdown();
-
-        // notify all the pending requests in the timeout map
-        notifyAllPendingSenders("Channel closed, connection closing.");
-    }
 
     /**
      * Update the response map with the response and notify the thread waiting for the
@@ -449,6 +356,16 @@ public class Connection {
 //
 //        throw new RpcException(RpcStatus.LOCAL_BINDING_ERROR, String.format("Cannot bind a port < 1024: %s", getRemoteAddress()));
         return null;
+    }
+
+    public Channel getChannel() {
+        return _channel;
+    }
+
+    public void close() {
+        if (_channel != null) {
+            _channel.close();
+        }
     }
 
 }

@@ -16,6 +16,7 @@ package com.emc.ecs.nfsclient.network;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.ReplayingDecoder;
@@ -40,12 +41,12 @@ public class RPCRecordDecoder extends ByteToMessageDecoder {
 
     @Override
     protected void decode(ChannelHandlerContext channelHandlerContext, ByteBuf byteBuf, List<Object> list) throws Exception {
-//        // Wait until the length prefix is available.
+        // Wait until the length prefix is available.
         if (byteBuf.readableBytes() < 4) {
             return;
         }
 
-        byteBuf.markReaderIndex(); //.markReaderIndex();
+        byteBuf.markReaderIndex();
 
         long fragSize = byteBuf.readUnsignedInt();
         boolean lastFragment = RecordMarkingUtil.isLastFragment(fragSize);
@@ -56,19 +57,19 @@ public class RPCRecordDecoder extends ByteToMessageDecoder {
         }
 
         byteBuf.skipBytes((int) fragSize);
-//
+
         _recordLength += 4 + (int) fragSize;
-//
-//        //check the last fragment
+
+        //check the last fragment
         if (!lastFragment) {
             //not the last fragment, the data is put in an internally maintained cumulative buffer
              return;
         }
-//
+
         ByteBuf rpcResponse = Unpooled.buffer(_recordLength, _recordLength);
         byteBuf.readerIndex(byteBuf.readerIndex() - _recordLength);
         byteBuf.readBytes(rpcResponse, 0, _recordLength);
-//
+
         _recordLength = 0;
         list.add(rpcResponse);
     }

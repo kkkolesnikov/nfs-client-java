@@ -20,6 +20,7 @@ import com.emc.ecs.nfsclient.rpc.Xdr;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -125,10 +126,6 @@ public class NetMgr {
         return connection.sendAndWait(timeout, xdrRequest);
     }
 
-    public Xdr sendAndWait(Connection connection, Xdr xdrRequest, int timeout) throws RpcException {
-        return connection.sendAndWait(timeout, xdrRequest);
-    }
-
     public void sendAsync(String serverIP, int port, boolean usePrivilegedPort, Xdr xdrRequest, Callback<Xdr> callback) throws RpcException {
         ConnectionPool pool = getConnectionPool(serverIP, port, usePrivilegedPort);
         Connection connection = pool.getConnection();
@@ -142,7 +139,7 @@ public class NetMgr {
         Map<InetSocketAddress, ConnectionPool> connectionMap = usePrivilegedPort ? _privilegedConnectionMap : _connectionMap;
 
         return connectionMap.computeIfAbsent(key,
-                (InetSocketAddress addr) -> new ConnectionPool(serverIP, port, usePrivilegedPort, _channelsPerSocket));
+                (InetSocketAddress addr) -> new DefaultConnectionPool(serverIP, port, usePrivilegedPort, _channelsPerSocket));
     }
 
     /**
@@ -160,12 +157,21 @@ public class NetMgr {
      * Called when the application is being shut down.
      */
     public void shutdown() {
+
         for (ConnectionPool connection : _connectionMap.values()) {
-            connection.shutdown();
+            try {
+                connection.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
 
         for (ConnectionPool connection : _privilegedConnectionMap.values()) {
-            connection.shutdown();
+            try {
+                connection.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
 
         eventLoopGroup.shutdownGracefully();
