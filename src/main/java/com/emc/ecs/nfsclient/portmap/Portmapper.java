@@ -14,7 +14,7 @@
  */
 package com.emc.ecs.nfsclient.portmap;
 
-import com.emc.ecs.nfsclient.network.NetworkManager;
+import com.emc.ecs.nfsclient.network.NetMgr;
 import com.emc.ecs.nfsclient.rpc.RpcException;
 import com.emc.ecs.nfsclient.rpc.RpcStatus;
 import com.emc.ecs.nfsclient.rpc.Xdr;
@@ -81,7 +81,7 @@ public class Portmapper {
                 Xdr portmapXdr = new Xdr(PORTMAP_MAX_REQUEST_SIZE);
                 request.marshalling(portmapXdr);
 
-                Xdr reply = NetworkManager.getInstance().sendAndWait(serverIP, PMAP_PORT, _usePrivilegedPort, portmapXdr,
+                Xdr reply = NetMgr.getInstance().sendAndWait(serverIP, PMAP_PORT, _usePrivilegedPort, portmapXdr,
                         PORTMAP_RPC_TIMEOUT);
 
                 response = new GetPortResponse();

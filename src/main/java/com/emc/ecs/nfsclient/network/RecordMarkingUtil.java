@@ -124,9 +124,10 @@ public class RecordMarkingUtil {
      * @param bytes The byte array.
      * @return The Xdr.
      */
+    //FixMe: No need to allocate input ...
     static Xdr removeRecordMarking(byte[] bytes) {
         Xdr toReturn = new Xdr(bytes.length);
-        Xdr input = new Xdr(bytes);
+        Xdr input = new Xdr(bytes, true);
 
         long fragSize;
         boolean lastFragment = false;

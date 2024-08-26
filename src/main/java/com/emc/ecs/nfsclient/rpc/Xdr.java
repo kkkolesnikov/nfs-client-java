@@ -76,7 +76,15 @@ public class Xdr {
      *            The data for the buffer.
      */
     public Xdr(byte[] data) {
-        _buffer = data.clone();
+        this(data, false);
+    }
+
+    public Xdr(byte[] data, boolean readOnly) {
+        if (readOnly) {
+            _buffer = data;
+        } else {
+            _buffer = data.clone();
+        }
         _size = data.length;
         _offset = 0;
     }

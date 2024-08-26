@@ -27,7 +27,6 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Each Connection instance manages a tcp connection. The class is used to send
@@ -36,17 +35,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author seibed
  */
 public class Connection {
-
-    /**
-     * Key for getting the connection from the helper map.
-     */
-    static final String CONNECTION_OPTION = "bourneLocalConn";
-
-    /**
-     * Key for getting the remote address from the helper map.
-     */
-    static final String REMOTE_ADDRESS_OPTION = "remoteAddress";
-
     /**
      * The usual logger.
      */
@@ -77,8 +65,6 @@ public class Connection {
      * Netty channel representing a tcp connection.
      */
     private Channel _channel;
-
-    private AtomicBoolean isConnected = new AtomicBoolean(false);
 
     /**
      * Netty helper instance.
@@ -145,10 +131,8 @@ public class Connection {
 
         Connection self = this;
 
-//        ChannelOption<Connection> self = ChannelOption.newInstance()
-
         _bootstrap = new Bootstrap()
-                .group(NetworkManager.getInstance().getEventLoopGroup())
+                .group(NetMgr.getInstance().getEventLoopGroup())
                 .remoteAddress(remoteHost, port)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT)
                 .option(ChannelOption.TCP_NODELAY, true)
@@ -157,44 +141,14 @@ public class Connection {
                 .channel(NioSocketChannel.class)
                 .handler(new ChannelInitializer<NioSocketChannel>() {
                     @Override
-                    protected void initChannel(NioSocketChannel nioSocketChannel) throws Exception {
-                        nioSocketChannel.pipeline()
-                                .addFirst(new RPCRecordDecoder())
-                                .addLast(new ClientIOHandler(self));
+                    protected void initChannel(NioSocketChannel socketChannel) throws Exception {
+                        socketChannel.pipeline()
+                                .addFirst(
+                                        new RPCRecordDecoder(),
+                                        new ClientIOHandler(self)
+                                        );
                     }
                 });
-
-
-
-//        _clientBootstrap = new ClientBootstrap(NetMgr.getInstance().getFactory());
-        // Configure the client.
-//        _clientBootstrap.setOption(REMOTE_ADDRESS_OPTION, new InetSocketAddress(remoteHost, port));
-//        _clientBootstrap.setOption("connectTimeoutMillis", CONNECT_TIMEOUT);  // set
-                                                                              // connection
-                                                                              // timeout
-                                                                              // value
-                                                                              // to
-                                                                              // 10
-                                                                              // seconds
-//        _clientBootstrap.setOption("tcpNoDelay", true);
-//        _clientBootstrap.setOption("keepAlive", true);
-//        _clientBootstrap.setOption(CONNECTION_OPTION, this); ???
-
-        // Configure the pipeline factory.
-//        _clientBootstrap.setPipelineFactory(new ChannelPipelineFactory() {
-//
-//            /**
-//             * Netty helper instance.
-//             */
-//            private final ChannelHandler ioHandler = new ClientIOHandler(_clientBootstrap);
-//
-//            /* (non-Javadoc)
-//             * @see org.jboss.netty.channel.ChannelPipelineFactory#getPipeline()
-//             */
-//            public ChannelPipeline getPipeline() throws Exception {
-//                return Channels.pipeline(new RPCRecordDecoder(), ioHandler);
-//            }
-//        });
     }
 
     /**
@@ -204,7 +158,6 @@ public class Connection {
      */
     public InetSocketAddress getRemoteAddress() {
         return _remoteAddress;
-//        return (InetSocketAddress) _clientBootstrap.getOption(REMOTE_ADDRESS_OPTION);
     }
 
     int getId() {
@@ -354,8 +307,6 @@ public class Connection {
         }
 
         _state = State.CONNECTING;
-
-//        _bootstrap.bind()
         ChannelFuture channelFuture = _bootstrap.connect();
 //        final ChannelFuture oldChannelFuture = _channelFuture;
 //
@@ -398,7 +349,6 @@ public class Connection {
         channelFuture.awaitUninterruptibly();
 
         if (channelFuture.isSuccess()) {
-
             _state = State.CONNECTED;
             _channel = channelFuture.channel();
             _channel.config().setWriteBufferHighWaterMark(MAX_SENDING_QUEUE_SIZE);

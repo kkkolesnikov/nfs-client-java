@@ -29,26 +29,26 @@ import java.util.concurrent.*;
  * 
  * @author seibed
  */
-public class NetworkManager {
+public class NetMgr {
 
     private int _channelsPerSocket;
 
     /**
      * The single instance.
      */
-    private static final NetworkManager _instance = new NetworkManager();
+    private static final NetMgr _instance = new NetMgr();
 
     /**
      * @return The instance.
      */
-    public static NetworkManager getInstance() {
+    public static NetMgr getInstance() {
         return _instance;
     }
 
     /**
      * Construct the private instance.
      */
-    private NetworkManager() {
+    private NetMgr() {
         super();
     }
 
@@ -65,8 +65,6 @@ public class NetworkManager {
     /**
      * Netty helper instance.
      */
-//    private final ChannelFactory _factory = new NioClientSocketChannelFactory(newThreadPool(), newThreadPool());
-
     private final EventLoopGroup eventLoopGroup = new NioEventLoopGroup(Runtime.getRuntime().availableProcessors()*2, getThreadFactory());
 
     public EventLoopGroup getEventLoopGroup() {
@@ -170,11 +168,7 @@ public class NetworkManager {
             connection.shutdown();
         }
 
-        try {
-            eventLoopGroup.awaitTermination(1, TimeUnit.MINUTES);
-        } catch (InterruptedException e) {
-            //
-        }
+        eventLoopGroup.shutdownGracefully();
     }
 
     /**
